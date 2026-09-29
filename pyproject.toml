@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "xrdcluster"
+version = "0.1.0"
+description = "Unsupervised phase mapping of scanning micro-XRD data (synchrotron) with baseline removal, PCA/NMF and clustering"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Mingfeng Xu" }]
+keywords = ["synchrotron", "x-ray diffraction", "micro-XRD", "machine learning", "clustering", "NMF", "pyFAI"]
+dependencies = [
+  "numpy>=1.22",
+  "scipy>=1.8",
+  "scikit-learn>=1.1",
+  "h5py>=3.6",
+  "matplotlib>=3.5",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+xrdcluster = "xrdcluster.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

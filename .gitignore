@@ -1,0 +1,17 @@
+# raw/processed beamline data are never committed
+*.h5
+*.hdf5
+*.nxs
+*.edf
+*.cbf
+data/
+results/
+results_private/
+
+__pycache__/
+*.egg-info/
+.ipynb_checkpoints/
+.pytest_cache/
+.DS_Store
+build/
+dist/
