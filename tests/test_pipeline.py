@@ -2,10 +2,10 @@ import numpy as np
 import pytest
 from sklearn.metrics import adjusted_rand_score
 
-from xrdcluster import (PhaseMapper, XRDMap, load_ewoks_h5, make_synthetic_map,
-                        phase_fraction, roi_area, snip_baseline)
-from xrdcluster.preprocess import build_features, otsu_threshold
-from xrdcluster.synthetic import hexagonal_q, pseudo_voigt
+from uxrd_phasemap_id13 import (PhaseMapper, XRDMap, load_ewoks_h5, make_synthetic_map,
+                        normalized_ratio, phase_fraction, roi_area, snip_baseline, window_sum)
+from uxrd_phasemap_id13.preprocess import build_features, otsu_threshold
+from uxrd_phasemap_id13.synthetic import hexagonal_q, pseudo_voigt
 
 
 # ---------------------------------------------------------------- preprocessing
@@ -123,3 +123,18 @@ def test_load_ewoks_h5_roundtrip(tmp_path):
 def test_xrdmap_validates_shape():
     with pytest.raises(ValueError):
         XRDMap(np.zeros((10, 5)), np.arange(5), (3, 3))
+
+
+def test_normalized_ratio_matches_published_definition():
+    a = np.array([10.0, 5.0, 1.0, 8.0])     # P2 102 ROI
+    b = np.array([4.0, 8.0, 8.0, 0.5])      # P3 012 ROI
+    r = normalized_ratio(a, b, threshold=0.15)
+    # a/max = [1, .5, .1, .8]; b/max = [.5, 1, 1, .0625]
+    np.testing.assert_allclose(r[:2], [1 / 1.5, 0.5 / 1.5])
+    assert np.isnan(r[2]) and np.isnan(r[3])  # below 15 % in one channel
+
+
+def test_window_sum():
+    q = np.linspace(0, 1, 11)
+    I = np.arange(22, dtype=float).reshape(2, 11)
+    np.testing.assert_allclose(window_sum(I, q, 0.25, 0.45), [3 + 4, 14 + 15])

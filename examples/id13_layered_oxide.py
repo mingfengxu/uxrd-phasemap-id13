@@ -1,5 +1,10 @@
 """Phase mapping of an ESRF ID13 scanning micro-XRD map of a P2/P3 layered oxide.
 
+Sample and published analysis: Xu et al., ACS Energy Lett. 2025, 10, 6347
+(doi:10.1021/acsenergylett.5c03108), Fig. 1c and SI. A biphasic P2/P3
+Na-layered oxide (700 C, 12 h) spread between Kapton tapes, 2 um x 2 um
+pixels, 400 um x 400 um regions (200 x 200 patterns), Eiger 4M, 0.954 A.
+
 Usage:
     python examples/id13_layered_oxide.py path/to/dq_*.h5 [--out results_private]
 
@@ -11,8 +16,10 @@ What it does
   3. PCA + KMeans on sqrt-scaled, L2-normalised peak patterns, excluding the
      texture-dominated 00l reflection shared by P2 and P3
   4. automatic choice of k by silhouette score
-  5. validation against the classical ROI approach: P2/(P2+P3) marker-peak
-     fraction per pixel vs. cluster assignment
+  5. validation against the ROI approach: (a) the published two-reflection
+     ratio 102_P2 / (102_P2 + 012_P3) with the original beamline q windows and
+     no background subtraction (SI eqns 1-3), (b) the same windows after SNIP
+     background subtraction, (c) the NMF P2 share
 """
 import argparse
 import json
@@ -23,13 +30,17 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from xrdcluster import PhaseMapper, load_ewoks_h5, phase_fraction
-from xrdcluster.plotting import PALETTE, plot_embedding, plot_label_map, plot_mean_patterns
+from uxrd_phasemap_id13 import PhaseMapper, load_ewoks_h5, normalized_ratio, phase_fraction, window_sum
+from uxrd_phasemap_id13.plotting import PALETTE, plot_embedding, plot_label_map, plot_mean_patterns
 
-# Marker reflections (q in 1/A) that belong to only one polytype, from the
-# hexagonal cells P2 (a=2.88, c=11.1 A) and P3 (a=2.88, c=16.8 A).
-MARKERS = {"P2": [2.766, 3.040], "P3": [2.635, 3.146]}
-LINES = {"P3 012": 2.635, "P2 102": 2.766, "P2 103": 3.040, "P3 015": 3.146}
+# Marker reflections (q in 1/A) that belong to only one polytype, calculated
+# from the Rietveld cells in the SI: P2-PC P6_3/mmc a=2.88516, c=11.0421 A;
+# P3-PC R3m a=2.87846, c=16.7048 A (the ID13 q scale reads ~0.2 % higher).
+MARKERS = {"P2": [2.760, 3.039, 3.392], "P3": [2.630, 3.145]}
+LINES = {"P3 012": 2.630, "P2 102": 2.760, "P2 103": 3.039, "P3 015": 3.145}
+# q windows of the beamline ROI maps used for the paper (reconstructed exactly
+# from the .dat files: plain sums of the pyFAI-integrated intensity)
+PUBLISHED_WINDOWS = {"P2 102": (2.7368, 2.7904), "P3 012": (2.5908, 2.6785)}
 BASAL = (1.0, 1.25)  # P2 002 / P3 003, strongly affected by crystallite orientation
 
 
@@ -109,14 +120,14 @@ def main():
         for name, qm in LINES.items():
             ax2[1, j].axvline(qm, color="grey", ls=":", lw=0.7)
         ax2[1, j].set_xlim(2.2, 3.5); ax2[1, j].set_xlabel(r"q ($\AA^{-1}$)")
-    # colour-blind-safe blend: orange = P2-like share, blue = P3-like share
+    # colour-blind-safe blend, same convention as the paper: blue = P2, orange = P3
     Wf = np.nan_to_num(W / np.nansum(W, 1, keepdims=True))
     share = Wf[:, i_p2] / np.clip(Wf[:, i_p2] + Wf[:, i_p3], 1e-9, None)
-    c_p2, c_p3 = np.array([0.835, 0.369, 0.0]), np.array([0.0, 0.447, 0.698])
+    c_p2, c_p3 = np.array([0.0, 0.447, 0.698]), np.array([0.835, 0.369, 0.0])
     rgb = np.ones((res.xmap.n_points, 3))
     rgb[fg] = share[fg, None] * c_p2 + (1 - share[fg, None]) * c_p3
     ax2[0, k].imshow(rgb.reshape(*res.xmap.shape, 3), origin="lower", interpolation="nearest")
-    ax2[0, k].set_title("NMF share: orange = P2, blue = P3"); ax2[0, k].set_xticks([]); ax2[0, k].set_yticks([])
+    ax2[0, k].set_title("NMF share: blue = P2, orange = P3"); ax2[0, k].set_xticks([]); ax2[0, k].set_yticks([])
     x = share[fg]
     ok = ~np.isnan(frac[fg])
     r_nmf = np.corrcoef(x[ok], frac[fg][ok])[0, 1]
@@ -135,9 +146,42 @@ def main():
         ax3.set_xlabel("k"); ax3.set_ylabel("silhouette score"); fig3.tight_layout()
         fig3.savefig(os.path.join(a.out, f"{stem}_kscan.png"), dpi=130)
 
+    # ---------------------------------------------------------- published method
+    raw = res.xmap.intensity
+    w2, w3 = PUBLISHED_WINDOWS["P2 102"], PUBLISHED_WINDOWS["P3 012"]
+    pub = normalized_ratio(window_sum(raw, res.q, *w2), window_sum(raw, res.q, *w3))
+    # after background removal a phase-pure pixel has ~0 in the other window, so the
+    # per-channel 15 % cut would drop pure P3 cores; mask by total signal instead
+    cor = normalized_ratio(window_sum(res.peaks, res.q, *w2), window_sum(res.peaks, res.q, *w3),
+                           threshold=0.0)
+    cor = np.where(fg, cor, np.nan)
+    bg_share = {k: float(np.nanmedian(1 - window_sum(res.peaks, res.q, *w)[np.isfinite(pub)]
+                                      / window_sum(raw, res.q, *w)[np.isfinite(pub)]))
+                for k, w in PUBLISHED_WINDOWS.items()}
+    both = np.isfinite(pub) & np.isfinite(cor)
+    r_pub = float(np.corrcoef(pub[both], cor[both])[0, 1])
+    print(f"published ratio: median {np.nanmedian(pub):.2f}; background-corrected: "
+          f"median {np.nanmedian(cor[both]):.2f}; r = {r_pub:.3f}; "
+          f"background share of ROI counts {bg_share}")
+    fig4, ax4 = plt.subplots(1, 3, figsize=(15, 4.6))
+    for axx, img, title, (lo, hi) in [
+            (ax4[0], pub, "published method (SI eqn 1-3)", (0.3, 0.7)),
+            (ax4[1], cor, "same windows, SNIP background removed", (0.0, 1.0)),
+            (ax4[2], np.where(fg, share, np.nan), "NMF P2 share (no ROI)", (0.0, 1.0))]:
+        im = axx.imshow(res.xmap.to_image(img), origin="lower", cmap="RdBu", vmin=lo, vmax=hi,
+                        interpolation="nearest")
+        fig4.colorbar(im, ax=axx, shrink=0.8)
+        axx.set_title(title, fontsize=10); axx.set_xticks([]); axx.set_yticks([])
+    fig4.suptitle("blue = P2-rich, red = P3-rich")
+    fig4.tight_layout()
+    fig4.savefig(os.path.join(a.out, f"{stem}_published_vs_ml.png"), dpi=130)
+
     with open(os.path.join(a.out, f"{stem}_summary.json"), "w") as fh:
         json.dump({"clusters": stats, "k_scan": res.k_scan, "corr_pc1_p2fraction": r,
                    "corr_nmf_p2share_roi": r_nmf,
+                   "published_ratio_median": float(np.nanmedian(pub)),
+                   "corrected_ratio_median": float(np.nanmedian(cor[both])),
+                   "corr_published_vs_corrected": r_pub, "roi_background_share": bg_share,
                    "foreground_points": int(fg.sum()), "shape": list(res.xmap.shape)}, fh, indent=2)
 
 

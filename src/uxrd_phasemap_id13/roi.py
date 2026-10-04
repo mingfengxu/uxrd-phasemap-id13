@@ -46,3 +46,34 @@ def phase_fraction(intensity: np.ndarray, q: np.ndarray, markers: Dict[str, Iter
     total = sum(sums.values())
     with np.errstate(divide="ignore", invalid="ignore"):
         return {name: np.where(total > 0, s / total, np.nan) for name, s in sums.items()}
+
+
+def window_sum(intensity: np.ndarray, q: np.ndarray, qmin: float, qmax: float) -> np.ndarray:
+    """Plain sum of intensity over ``qmin <= q <= qmax`` (no background).
+
+    This is what a beamline ROI (e.g. the ID13 ``.dat`` maps) contains.
+    """
+    sel = (np.asarray(q) >= qmin) & (np.asarray(q) <= qmax)
+    if not sel.any():
+        raise ValueError(f"window {qmin}-{qmax} is outside the q range")
+    return np.atleast_2d(intensity)[:, sel].sum(1)
+
+
+def normalized_ratio(i_a: np.ndarray, i_b: np.ndarray, threshold: float = 0.15) -> np.ndarray:
+    """Two-reflection phase ratio as used in Xu et al., ACS Energy Lett. 2025,
+    10, 6347 (SI, eqns 1-3).
+
+    Each ROI map is normalised to its own maximum, pixels where either
+    normalised value is below ``threshold`` are masked (NaN), and the ratio
+    ``a / (a + b)`` is returned. If the ROI sums still contain the diffuse
+    background, the ratio is compressed towards 0.5; pass background-
+    subtracted areas (e.g. from :func:`roi_area` on SNIP-corrected data) to
+    avoid that. With background-free inputs, set ``threshold=0`` and mask by
+    total signal instead: the per-channel cut would otherwise discard
+    phase-pure pixels, whose other channel is ~0.
+    """
+    a = np.asarray(i_a, dtype=float) / np.nanmax(i_a)
+    b = np.asarray(i_b, dtype=float) / np.nanmax(i_b)
+    a = np.where(a < threshold, np.nan, a)
+    b = np.where(b < threshold, np.nan, b)
+    return a / (a + b)

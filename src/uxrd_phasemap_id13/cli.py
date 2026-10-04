@@ -1,4 +1,4 @@
-"""Command line interface: ``xrdcluster map.h5 -k 3 4 5 --out results/``."""
+"""Command line interface: ``uxrd-phasemap-id13 map.h5 -k 3 4 5 --out results/``."""
 from __future__ import annotations
 
 import argparse

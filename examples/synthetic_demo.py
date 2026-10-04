@@ -10,8 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from sklearn.metrics import adjusted_rand_score
 
-from xrdcluster import PhaseMapper, make_synthetic_map
-from xrdcluster.plotting import cluster_cmap, plot_mean_patterns
+from uxrd_phasemap_id13 import PhaseMapper, make_synthetic_map
+from uxrd_phasemap_id13.plotting import cluster_cmap, plot_mean_patterns
 
 xmap, truth = make_synthetic_map(shape=(100, 100), n_particles=90, impurity_particles=4,
                                  texture=0.8, seed=7)
