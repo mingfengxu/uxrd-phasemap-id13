@@ -116,7 +116,7 @@ Na salts are candidates, since Rietveld refinement of the bulk powders shows
 
 ```bash
 pip install -e ".[dev]"
-pytest                     # 20 tests (5 need the [integrate] extra), synthetic data only
+pytest                     # 25 tests (6 need the [integrate] extra), synthetic data only
 ```
 
 Command line:
@@ -180,6 +180,25 @@ uxrd-phasemap-id13-integrate --master RAW/scan.h5 --eiger-dir RAW/eiger \
 Speed: about 0.07 s per Eiger 4M frame on 2 CPU cores, or about 0.2 s with
 sigma-clipping. A multi-core laptop is faster.
 
+## Interactive viewer: map ↔ 1D pattern ↔ raw 2D frame
+
+```bash
+uxrd-phasemap-id13-viewer PROCESSED/scan_0001.h5 \
+    --master RAW/scan.h5 --eiger-dir RAW/eiger --geometry m380.poni --mask mask.edf
+```
+
+* **Map**: intensity in the current q window. Click a pixel, or move with the arrow keys.
+* **1D**: the selected pixel plotted over the map average. Drag to set a new q window;
+  the map, the rings and the text boxes all update.
+* **2D**: the raw Eiger frame of that pixel with the mask shaded and the q window drawn
+  as cyan/yellow rings. `c` switches to a cake (q–χ) view, where powder rings appear
+  as vertical lines and single crystallites as spots.
+* `l` toggles log scale, `b` toggles SNIP background removal, `s` saves a PNG and
+  `e` exports the map and pattern as CSV.
+
+Without `--master` the viewer still shows the map and 1D panels, which needs only
+the processed file and matplotlib.
+
 ## Layout
 
 ```
@@ -191,6 +210,7 @@ src/uxrd_phasemap_id13/
   synthetic.py   physically-motivated synthetic maps with ground truth
   plotting.py    colour-blind-safe figures
   integrate.py   raw Eiger frames -> I(q) with pyFAI (mask, monitor, sigma-clip, preview)
+  viewer.py      interactive map / 1D / raw-2D viewer (matplotlib)
   cli.py         command line entry point
 tests/           unit + end-to-end tests (CI via GitHub Actions)
 ```

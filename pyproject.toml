@@ -26,6 +26,7 @@ integrate = ["pyFAI>=2023.1", "hdf5plugin>=4", "fabio>=2022"]
 [project.scripts]
 uxrd-phasemap-id13 = "uxrd_phasemap_id13.cli:main"
 uxrd-phasemap-id13-integrate = "uxrd_phasemap_id13.integrate:main"
+uxrd-phasemap-id13-viewer = "uxrd_phasemap_id13.viewer:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
