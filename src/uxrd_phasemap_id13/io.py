@@ -75,11 +75,15 @@ def load_ewoks_h5(
     shape: Optional[Tuple[int, int]] = None,
     scan: Optional[str] = None,
     dtype=np.float32,
+    group: Optional[str] = None,
 ) -> XRDMap:
     """Read a pyFAI/ewoks integrated map.
 
     Looks for ``<scan>/*_integrate/integrated/{intensity,q}``. If ``scan`` is
-    not given the first entry that contains such a group is used.
+    not given the first entry that contains such a group is used; ``group``
+    selects a specific one (e.g. ``"eiger_sigmaclip"`` written by
+    ``uxrd-phasemap-id13-integrate --sigma-clip``). The map shape is taken
+    from ``shape``, else from a ``map_shape`` attribute, else assumed square.
     """
     import h5py
 
@@ -87,7 +91,10 @@ def load_ewoks_h5(
         entries = [scan] if scan else list(h5.keys())
         for entry in entries:
             grp = h5[entry]
-            for name in grp:
+            names = [group] if group else list(grp)
+            for name in names:
+                if name not in grp:
+                    continue
                 sub = grp[name]
                 if isinstance(sub, h5py.Group) and "integrated" in sub:
                     integ = sub["integrated"]
@@ -104,6 +111,11 @@ def load_ewoks_h5(
                                 meta["wavelength_A"] = poni["wavelength"] * 1e10
                         except (ValueError, AttributeError):
                             pass
-                    shp = tuple(shape) if shape else _guess_shape(intensity.shape[0])
+                    if shape:
+                        shp = tuple(shape)
+                    elif "map_shape" in integ.attrs:
+                        shp = tuple(int(v) for v in integ.attrs["map_shape"])
+                    else:
+                        shp = _guess_shape(intensity.shape[0])
                     return XRDMap(intensity, q, shp, meta)
     raise KeyError(f"No '*/integrated/intensity' dataset found in {path}")

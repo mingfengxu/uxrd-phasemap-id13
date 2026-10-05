@@ -116,7 +116,7 @@ Na salts are candidates, since Rietveld refinement of the bulk powders shows
 
 ```bash
 pip install -e ".[dev]"
-pytest                     # 15 tests, synthetic data only, ~5 s
+pytest                     # 20 tests (5 need the [integrate] extra), synthetic data only
 ```
 
 Command line:
@@ -143,6 +143,43 @@ The full real-data analysis, including the ROI cross-check, is in
 [`examples/id13_layered_oxide.py`](examples/id13_layered_oxide.py). A walk-through
 on synthetic data is in [`examples/quickstart.ipynb`](examples/quickstart.ipynb).
 
+## From raw detector frames (pyFAI)
+
+`uxrd-phasemap-id13-integrate` repeats the beamline's Ewoks integration step on your
+own computer. It reads the raw Eiger/LIMA files of a Bliss scan, integrates every
+2D frame to I(q) with pyFAI, and writes an HDF5 file in the same layout as
+PROCESSED_DATA. Frames are streamed in chunks, so a 40 GB scan needs well under
+1 GB of RAM.
+
+```bash
+pip install -e ".[integrate]"            # pyFAI, hdf5plugin, fabio
+
+# 1) one-frame sanity check: raw image + mask, cake (q-chi), plain vs sigma-clipped 1D
+uxrd-phasemap-id13-integrate --master RAW/scan.h5 --eiger-dir RAW/eiger \
+    --geometry azimint.json --mask mask.edf --preview 0 --out preview.png
+
+# 2) a few scan rows first, then the whole map
+uxrd-phasemap-id13-integrate --master RAW/scan.h5 --eiger-dir RAW/eiger \
+    --geometry azimint.json --mask mask.edf --monitor ct34 --rows 0:5 --out test.h5
+uxrd-phasemap-id13-integrate --master RAW/scan.h5 --eiger-dir RAW/eiger \
+    --geometry azimint.json --mask mask.edf --monitor ct34 --sigma-clip --out scan_int.h5
+```
+
+* `--geometry` accepts a `.poni` file, the beamline `azimint.json`, or an Ewoks
+  workflow json, and reads the PONI, the number of q bins and the polarisation factor.
+* The mask combines detector module gaps, pixels flagged by the Eiger firmware
+  (stuck at 65535 or 2³²−1 in every probe frame) and an optional `mask.edf`, which
+  normally also covers the beam stop.
+* `--sigma-clip` additionally writes `eiger_sigmaclip`. In each q bin, pixels more
+  than 3σ from the mean are rejected before averaging (pyFAI `sigma_clip_ng`),
+  which removes bright single-crystal spots from powder rings.
+* The result loads with `load_ewoks_h5("scan_int.h5")`, or with
+  `group="eiger_sigmaclip"` for the clipped version, and can be fed straight
+  into `PhaseMapper`.
+
+Speed: about 0.07 s per Eiger 4M frame on 2 CPU cores, or about 0.2 s with
+sigma-clipping. A multi-core laptop is faster.
+
 ## Layout
 
 ```
@@ -153,6 +190,7 @@ src/uxrd_phasemap_id13/
   roi.py         ROI sums/areas, marker-peak ratio, published two-reflection ratio
   synthetic.py   physically-motivated synthetic maps with ground truth
   plotting.py    colour-blind-safe figures
+  integrate.py   raw Eiger frames -> I(q) with pyFAI (mask, monitor, sigma-clip, preview)
   cli.py         command line entry point
 tests/           unit + end-to-end tests (CI via GitHub Actions)
 ```
