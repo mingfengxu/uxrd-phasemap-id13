@@ -1,7 +1,7 @@
 """Classical region-of-interest (ROI) peak maps, used as a physics baseline."""
 from __future__ import annotations
 
-from typing import Dict, Iterable
+from typing import Dict, Iterable, Optional
 
 import numpy as np
 
@@ -77,3 +77,49 @@ def normalized_ratio(i_a: np.ndarray, i_b: np.ndarray, threshold: float = 0.15) 
     a = np.where(a < threshold, np.nan, a)
     b = np.where(b < threshold, np.nan, b)
     return a / (a + b)
+
+
+def peak_position_map(intensity: np.ndarray, q: np.ndarray, qmin: float, qmax: float,
+                      points: Optional[np.ndarray] = None, min_height: float = 0.0,
+                      max_q_error: float = 0.002):
+    """Fit a Gaussian + constant to one reflection in every pattern.
+
+    Gives sub-bin peak positions, so small lattice-parameter changes (strain,
+    Na content) can be mapped -- something clustering/NMF cannot resolve,
+    because a continuous peak shift is not a mixture of fixed patterns.
+
+    Returns a dict of per-point arrays (NaN where not fitted): ``q0``
+    (centre), ``d`` (= 2*pi/q0), ``q0_err`` (1-sigma from the fit), ``height``
+    and ``sigma`` (Gaussian width).
+    """
+    from scipy.optimize import curve_fit
+
+    q = np.asarray(q)
+    I = np.atleast_2d(intensity)
+    win = (q >= qmin) & (q <= qmax)
+    qw = q[win]
+    n = I.shape[0]
+    out = {k: np.full(n, np.nan) for k in ("q0", "d", "q0_err", "height", "sigma")}
+    idx = np.arange(n) if points is None else np.flatnonzero(np.asarray(points, bool))
+    step = float(np.median(np.diff(qw)))
+
+    def gauss(x, a, c, w, b):
+        return a * np.exp(-0.5 * ((x - c) / w) ** 2) + b
+
+    for i in idx:
+        y = I[i, win].astype(float)
+        if y.max() - np.median(y) <= min_height:
+            continue
+        j = int(np.argmax(y))
+        try:
+            popt, pcov = curve_fit(gauss, qw, y, p0=[y.max() - y.min(), qw[j], 2 * step, y.min()],
+                                   bounds=([0, qmin, step / 4, -np.inf], [np.inf, qmax, qmax - qmin, np.inf]),
+                                   maxfev=4000)
+        except (RuntimeError, ValueError):
+            continue
+        err = float(np.sqrt(pcov[1, 1])) if np.all(np.isfinite(pcov)) else np.inf
+        if err > max_q_error:
+            continue
+        out["q0"][i], out["q0_err"][i], out["height"][i], out["sigma"][i] = popt[1], err, popt[0], popt[2]
+    out["d"] = 2 * np.pi / out["q0"]
+    return out

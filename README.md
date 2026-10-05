@@ -116,7 +116,7 @@ Na salts are candidates, since Rietveld refinement of the bulk powders shows
 
 ```bash
 pip install -e ".[dev]"
-pytest                     # 25 tests (6 need the [integrate] extra), synthetic data only
+pytest                     # 29 tests (6 need the [integrate] extra), synthetic data only
 ```
 
 Command line:
@@ -180,6 +180,23 @@ uxrd-phasemap-id13-integrate --master RAW/scan.h5 --eiger-dir RAW/eiger \
 Speed: about 0.07 s per Eiger 4M frame on 2 CPU cores, or about 0.2 s with
 sigma-clipping. A multi-core laptop is faster.
 
+## Cell backgrounds and nano-beam data
+
+In-situ cells add signal that is nearly the same everywhere in the beam path:
+window, electrolyte, separator and foils. Peaks that are narrower than the SNIP window
+survive SNIP and then dominate clustering. `PhaseMapper(background="reference")`, or
+`reference_background()` directly, instead subtracts a scaled median pattern of the
+sample-free pixels. On an ID13 nano-beam map of a cycled NaNiO₂ electrode this removed
+about 98 % of the cell peaks while keeping the electrode reflections unchanged.
+`fit(xmap, points=...)` restricts the analysis to one particle.
+
+With a ~50 nm beam, each pixel sees only one or a few crystallites. Phases then show
+up as continuous *peak shifts* rather than as mixtures of fixed patterns.
+`peak_position_map()` fits one reflection in every pixel, giving its d-spacing to
+about 1e-4 Å⁻¹ in q, which is far below the bin width.
+[`examples/nanobeam_particle.py`](examples/nanobeam_particle.py) chains reference
+background → particle selection → NMF → lattice-spacing map.
+
 ## Interactive viewer: map ↔ 1D pattern ↔ raw 2D frame
 
 ```bash
@@ -204,9 +221,9 @@ the processed file and matplotlib.
 ```
 src/uxrd_phasemap_id13/
   io.py          ewoks/pyFAI HDF5 reader, XRDMap container
-  preprocess.py  vectorised SNIP baseline, Otsu + Poisson-noise particle mask, features
+  preprocess.py  SNIP baseline, empty-region reference background, Otsu + noise-aware mask, features
   cluster.py     PhaseMapper pipeline (PCA, KMeans/GMM, k selection, NMF)
-  roi.py         ROI sums/areas, marker-peak ratio, published two-reflection ratio
+  roi.py         ROI sums/areas, marker-peak ratio, published two-reflection ratio, per-pixel peak fits
   synthetic.py   physically-motivated synthetic maps with ground truth
   plotting.py    colour-blind-safe figures
   integrate.py   raw Eiger frames -> I(q) with pyFAI (mask, monitor, sigma-clip, preview)

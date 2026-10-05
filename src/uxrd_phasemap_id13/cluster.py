@@ -17,7 +17,7 @@ from sklearn.metrics import silhouette_score
 from sklearn.mixture import GaussianMixture
 
 from .io import XRDMap
-from .preprocess import build_features, foreground_mask, q_mask, snip_baseline
+from .preprocess import build_features, foreground_mask, q_mask, reference_background, snip_baseline
 
 BACKGROUND = -1
 
@@ -94,6 +94,12 @@ class PhaseMapper:
     method : "kmeans" | "gmm"
     n_nmf : int
         If > 0, additionally factorise foreground peak patterns with NMF.
+    background : "snip" | "reference"
+        ``snip``: mathematical baseline per pattern (default).
+        ``reference``: subtract a scaled median pattern of the sample-free
+        points (found with a first SNIP pass), which also removes narrow but
+        spatially uniform signals from cell windows, electrolyte or foils that
+        SNIP would keep as "peaks"; a light SNIP then removes what is left.
     """
 
     def __init__(
@@ -109,6 +115,7 @@ class PhaseMapper:
         n_nmf: int = 0,
         silhouette_sample: int = 5000,
         random_state: int = 0,
+        background: str = "snip",
     ):
         if method not in ("kmeans", "gmm"):
             raise ValueError("method must be 'kmeans' or 'gmm'")
@@ -123,6 +130,9 @@ class PhaseMapper:
         self.n_nmf = n_nmf
         self.silhouette_sample = silhouette_sample
         self.random_state = random_state
+        if background not in ("snip", "reference"):
+            raise ValueError("background must be 'snip' or 'reference'")
+        self.background = background
 
     # ------------------------------------------------------------------ #
     def _cluster(self, Z: np.ndarray, k: int):
@@ -150,11 +160,21 @@ class PhaseMapper:
         return remap[labels], (proba[:, order] if proba is not None else None)
 
     # ------------------------------------------------------------------ #
-    def fit(self, xmap: XRDMap) -> PhaseMapResult:
+    def fit(self, xmap: XRDMap, points: Optional[np.ndarray] = None) -> PhaseMapResult:
+        """``points`` (bool per scan point) restricts the analysis to a region,
+        e.g. one particle; the background reference still uses the whole map."""
         xmap = xmap.crop_q(*self.q_range)
         baseline = snip_baseline(xmap.intensity, self.snip_iterations)
         peaks = np.clip(xmap.intensity - baseline, 0, None)
         fg, thr = foreground_mask(peaks, self.foreground_threshold, baseline=baseline)
+        self.reference_ = None
+        if self.background == "reference":
+            resid, scale, ref = reference_background(xmap.intensity, ~fg)
+            light = snip_baseline(np.clip(resid, 0, None), self.snip_iterations)
+            peaks = np.clip(resid - light, 0, None)
+            self.reference_ = {"pattern": ref, "scale": scale, "points": ~fg}
+        if points is not None:
+            fg = fg & np.asarray(points, bool)
         if fg.sum() < 10:
             raise RuntimeError("fewer than 10 foreground points; lower the threshold")
         keep = q_mask(xmap.q, self.exclude_q)

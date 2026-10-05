@@ -37,6 +37,47 @@ def subtract_background(intensity: np.ndarray, iterations: int = 40) -> np.ndarr
     return np.clip(intensity - snip_baseline(intensity, iterations), 0, None)
 
 
+def reference_background(intensity: np.ndarray, reference_points: np.ndarray,
+                         fit_bins: Optional[np.ndarray] = None, n_iter: int = 6,
+                         clip_sigma: float = 2.5):
+    """Empty-region reference subtraction.
+
+    Components that are (nearly) the same everywhere in the beam path -- cell
+    window, electrolyte, separator, a uniform foil -- are removed by
+    subtracting a *measured* reference pattern instead of a mathematical
+    baseline::
+
+        ref    = median of the patterns at ``reference_points`` (no sample)
+        I_i   ~= s_i * ref + Bragg_i          (s_i: local thickness / flux)
+
+    The scale ``s_i`` of every pattern is a least-squares fit over
+    ``fit_bins`` in which bins with positive outliers (Bragg peaks of the
+    sample add intensity, they never remove it) are iteratively excluded,
+    using a robust (MAD) noise estimate.
+
+    Returns ``(residual, scale, ref)``; the residual is ``I - s * ref`` and
+    can be slightly negative where the sample absorbs or a reference
+    component is locally weaker.
+    """
+    I = np.asarray(intensity, dtype=float)
+    ref_pts = np.asarray(reference_points, dtype=bool)
+    if ref_pts.sum() < 5:
+        raise ValueError("need at least 5 reference (sample-free) points")
+    ref = np.median(I[ref_pts], axis=0)
+    fit = np.ones(I.shape[1], bool) if fit_bins is None else np.asarray(fit_bins, bool)
+    fit &= ref > 0
+    r = ref[fit]
+    y = I[:, fit]
+    s = np.median(y / r, axis=1)
+    for _ in range(n_iter):
+        res = y - s[:, None] * r
+        med = np.median(res, axis=1, keepdims=True)
+        sig = 1.4826 * np.median(np.abs(res - med), axis=1, keepdims=True) + 1e-12
+        w = res < med + clip_sigma * sig
+        s = (w * y * r).sum(1) / np.clip((w * r * r).sum(1), 1e-12, None)
+    return I - s[:, None] * ref, s, ref
+
+
 def otsu_threshold(values: np.ndarray, bins: int = 256) -> float:
     """Otsu's threshold for a 1D sample (no scikit-image dependency)."""
     values = np.asarray(values, dtype=float)
